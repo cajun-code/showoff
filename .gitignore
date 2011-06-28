@@ -20,6 +20,7 @@ pkg
 *.gem
 .bundle
 Gemfile.lock
+*.rbc
 
 ## PROJECT::SPECIFIC
 dist
@@ -28,3 +29,6 @@ dist
 *.ipr
 *.iml
 *.iws
+
+## redcar specific
+.redcar

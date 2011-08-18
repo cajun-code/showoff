@@ -40,6 +40,11 @@ function setupPreso(load_slides, prefix) {
 	/* window.onresize	= resized; */
 	/* window.onscroll = scrolled; */
 	/* window.onunload = unloaded; */
+
+	$('body').addSwipeEvents().
+		bind('tap', swipeLeft).         // next
+		bind('swipeleft', swipeLeft).   // next
+		bind('swiperight', swipeRight); // prev
 }
 
 function loadSlides(load_slides, prefix) {
@@ -86,7 +91,7 @@ function initializePresentation(prefix) {
 	}
 	setupSlideParamsCheck();
 	sh_highlightDocument(prefix+'/js/sh_lang/', '.min.js')
-	$(".preso").trigger("showoff:loaded");
+	$("#preso").trigger("showoff:loaded");
 }
 
 function centerSlides(slides) {
@@ -204,10 +209,6 @@ function showSlide(back_step) {
 		incrSteps = 0
 	}
 	location.hash = slidenum + 1;
-	$('body').addSwipeEvents().
-		bind('tap', swipeLeft).         // next
-		bind('swipeleft', swipeLeft).   // next
-		bind('swiperight', swipeRight); // prev
 
 	removeResults();
 
@@ -328,7 +329,7 @@ function keyDown(event)
 		return true;
 	}
 
-	if (key == 13){
+	if (key == 13) {
 		if (gotoSlidenum > 0) {
 			debug('go to ' + gotoSlidenum);
 			slidenum = gotoSlidenum - 1;
@@ -353,10 +354,14 @@ function keyDown(event)
 	{
 		shiftKeyActive = true;
 	}
+
 	if (key == 32) // space bar
 	{
-		if (shiftKeyActive) { prevStep() }
-		else				{ nextStep() }
+		if (shiftKeyActive) {
+			prevStep()
+		} else {
+			nextStep()
+		}
 	}
 	else if (key == 68) // 'd' for debug
 	{
@@ -382,7 +387,7 @@ function keyDown(event)
 	{
 		$('#navmenu').toggle().trigger('click')
 	}
-	else if (key == 90) // z for help
+	else if (key == 90 || key == 191) // z or ? for help
 	{
 		$('#help').toggle()
 	}
@@ -419,23 +424,12 @@ function keyUp(event) {
 	}
 }
 
-
-var lastSwipeLeft = (+new Date());
-var lastSwipeRight = (+new Date());
 function swipeLeft() {
-  var time = (+new Date());
-  if((time - lastSwipeLeft) > 100) {
-    lastSwipeLeft = time;
-    nextStep();
-  }
+  nextStep();
 }
 
 function swipeRight() {
-  var time = (+new Date());
-  if((time - lastSwipeRight) > 100) {
-    lastSwipeRight = time;
-    prevStep();
-  }
+  prevStep();
 }
 
 function ListMenu(s)
@@ -527,7 +521,7 @@ var preshow_timerRunning = false;
 var preshow_current = 0;
 var preshow_images;
 var preshow_imagesTotal = 0;
-var preshow_des;
+var preshow_des = null;
 
 function runPreShow() {
 	if(preshow_running) {
@@ -583,7 +577,7 @@ function startPreShow() {
 function addPreShowTips() {
 	time = secondsToTime(preshow_secondsLeft)
 	$('#preshow_timer').text(time + ' to go-time')
-	var des = preshow_des[tmpImg.attr("ref")]
+	var des = preshow_des && preshow_des[tmpImg.attr("ref")]
 	if(des) {
 		$('#tips').show()
 		$('#tips').text(des)

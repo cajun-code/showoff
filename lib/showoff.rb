@@ -3,10 +3,12 @@ require 'sinatra/base'
 require 'json'
 require 'nokogiri'
 require 'fileutils'
+require 'logger'
 
 here = File.expand_path(File.dirname(__FILE__))
 require "#{here}/showoff_utils"
 require "#{here}/princely"
+require "#{here}/commandline_parser"
 
 begin
   require 'RMagick'
@@ -27,30 +29,41 @@ rescue LoadError
   Object.send(:remove_const,:Markdown)
   Markdown = BlueCloth
 end
-require 'pp'
 
 class ShowOff < Sinatra::Application
 
-  Version = VERSION = '0.4.2'
+  Version = VERSION = '0.5.1'
 
   attr_reader :cached_image_size
 
   set :views, File.dirname(__FILE__) + '/../views'
   set :public, File.dirname(__FILE__) + '/../public'
-  set :pres_dir, 'example'
 
   def initialize(app=nil)
     super(app)
-    puts dir = File.expand_path(File.join(File.dirname(__FILE__), '..'))
-    if Dir.pwd == dir
-      options.pres_dir = dir + '/example'
+    @logger = Logger.new(STDOUT)
+    @logger.formatter = proc { |severity,datetime,progname,msg| "#{progname} #{msg}\n" }
+    @logger.level = options.verbose ? Logger::DEBUG : Logger::WARN
+
+    dir = File.expand_path(File.join(File.dirname(__FILE__), '..'))
+    @logger.debug(dir)
+
+    showoff_dir = File.expand_path(File.join(File.dirname(__FILE__), '..'))
+    if Dir.pwd == showoff_dir
+      options.pres_dir = "#{showoff_dir}/example"
       @root_path = "."
     else
-      options.pres_dir = Dir.pwd
+      options.pres_dir ||= Dir.pwd
       @root_path = ".."
     end
+    options.pres_dir = File.expand_path(options.pres_dir)
+    if (options.pres_file)
+      puts "Using #{options.pres_file}"
+      ShowOffUtils.presentation_config_file = options.pres_file
+    end
+    puts "Serving presentation from #{options.pres_dir}"
     @cached_image_size = {}
-    puts options.pres_dir
+    @logger.debug options.pres_dir
     @pres_name = options.pres_dir.split('/').pop
     require_ruby_files
   end
@@ -63,7 +76,7 @@ class ShowOff < Sinatra::Application
     def load_section_files(section)
       section = File.join(options.pres_dir, section)
       files = Dir.glob("#{section}/**/*").sort
-      pp files
+      @logger.debug files
       files
     end
 
@@ -81,6 +94,12 @@ class ShowOff < Sinatra::Application
     end
 
     def process_markdown(name, content, static=false, pdf=false)
+
+      # if there are no !SLIDE markers, then make every H1 define a new slide
+      unless content =~ /^\<?!SLIDE/m
+        content = content.gsub(/^# /m, "<!SLIDE bullets>\n# ")
+      end
+
       slides = content.split(/^<?!SLIDE/)
       slides.delete('')
       final = ''
@@ -101,9 +120,9 @@ class ShowOff < Sinatra::Application
         # extract id, defaulting to none
         id = nil
         content_classes.delete_if { |x| x =~ /^#([\w-]+)/ && id = $1 }
-        puts "id: #{id}" if id
-        puts "classes: #{content_classes.inspect}"
-        puts "transition: #{transition}"
+        @logger.debug "id: #{id}" if id
+        @logger.debug "classes: #{content_classes.inspect}"
+        @logger.debug "transition: #{transition}"
         # create html
         md += "<div"
         md += " id=\"#{id}\"" if id
@@ -152,7 +171,12 @@ class ShowOff < Sinatra::Application
       def get_image_size(path)
         if !cached_image_size.key?(path)
           img = Magick::Image.ping(path).first
-          cached_image_size[path] = [img.columns, img.rows]
+          # don't set a size for svgs so they can expand to fit their container
+          if img.mime_type == 'image/svg+xml'
+            cached_image_size[path] = [nil, nil]
+          else
+            cached_image_size[path] = [img.columns, img.rows]
+          end
         end
         cached_image_size[path]
       end
@@ -163,6 +187,7 @@ class ShowOff < Sinatra::Application
 
     def update_commandline_code(slide)
       html = Nokogiri::XML.parse(slide)
+      parser = CommandlineParser.new
 
       html.css('pre').each do |pre|
         pre.css('code').each do |code|
@@ -178,27 +203,36 @@ class ShowOff < Sinatra::Application
 
       html.css('.commandline > pre > code').each do |code|
         out = code.text
-        lines = out.split(/^\$(.*?)$/)
-        lines.delete('')
         code.content = ''
-        while(lines.size > 0) do
-          command = lines.shift
-          result = lines.shift
-          c = Nokogiri::XML::Node.new('code', html)
-          c.set_attribute('class', 'command')
-          c.content = '$' + command
-          code << c
-          c = Nokogiri::XML::Node.new('code', html)
-          c.set_attribute('class', 'result')
-          c.content = result
-          code << c
+        tree = parser.parse(out)
+        transform = Parslet::Transform.new do
+          rule(:prompt => simple(:prompt), :input => simple(:input), :output => simple(:output)) do
+            command = Nokogiri::XML::Node.new('code', html)
+            command.set_attribute('class', 'command')
+            command.content = "#{prompt} #{input}"
+            code << command
+
+            # Add newline after the input so that users can
+            # advance faster than the typewriter effect
+            # and still keep inputs on separate lines.
+            code << "\n"
+
+            unless output.to_s.empty?
+
+              result = Nokogiri::XML::Node.new('code', html)
+              result.set_attribute('class', 'result')
+              result.content = output
+              code << result
+            end
+          end
         end
+        transform.apply(tree)
       end
       html.root.to_s
     end
 
     def get_slides_html(static=false, pdf=false)
-      sections = ShowOffUtils.showoff_sections(options.pres_dir)
+      sections = ShowOffUtils.showoff_sections(options.pres_dir,@logger)
       files = []
       if sections
         sections.each do |section|
@@ -374,7 +408,7 @@ class ShowOff < Sinatra::Application
           File.open(css_path) do |file|
             data = file.read
             data.scan(/url\((.*)\)/).flatten.each do |path|
-              p path
+              @logger.debug path
               dir = File.dirname(path)
               FileUtils.makedirs(File.join(file_dir, dir))
               FileUtils.copy(File.join(pres_dir, path), File.join(file_dir, path))

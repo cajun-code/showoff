@@ -25,9 +25,10 @@ end
 begin
   require 'rdiscount'
 rescue LoadError
-  require 'bluecloth'
+  #require 'bluecloth'
+  require 'redcarpet'
   Object.send(:remove_const,:Markdown)
-  Markdown = BlueCloth
+  Markdown = RedCarpet
 end
 
 class ShowOff < Sinatra::Application

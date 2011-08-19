@@ -28,7 +28,7 @@ rescue LoadError
   #require 'bluecloth'
   require 'redcarpet'
   Object.send(:remove_const,:Markdown)
-  Markdown = RedCarpet
+  Markdown = Redcarpet
 end
 
 class ShowOff < Sinatra::Application
